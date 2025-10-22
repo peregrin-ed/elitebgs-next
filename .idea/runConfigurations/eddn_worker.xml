@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="eddn-worker" type="NodeJSConfigurationType" node-parameters="--experimental-transform-types" path-to-js-file="index.ts" working-dir="$PROJECT_DIR$/eddn-worker">
+  <configuration default="false" name="eddn-worker" type="NodeJSConfigurationType" path-to-node="$USER_HOME$/.nvm/versions/node/v24.7.0/bin/node" node-parameters="--experimental-transform-types" path-to-js-file="index.ts" working-dir="$PROJECT_DIR$/eddn-worker">
     <EXTENSION ID="com.jetbrains.nodejs.run.NodeJSProfilingRunConfigurationExtension">
       <profiling log-folder="eddn-worker" do-profile="true" />
     </EXTENSION>

@@ -5,7 +5,6 @@ import (
 	"compress/bzip2"
 	"encoding/json"
 	"fmt"
-	"github.com/joho/godotenv"
 	"io"
 	"iter"
 	"log"
@@ -16,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type message struct {
@@ -57,29 +58,36 @@ func downloadBzip2Files(workerUrl string) {
 		log.Fatal("Error parsing end date:", err)
 	}
 
-	for date := range iterateDays(downloadStartTime, downloadEndTime) {
-		func() {
-			fullUrl, err := url.JoinPath(downloadUrl, date.Format("2006-01"), fmt.Sprintf("Journal.FSDJump-%s.jsonl.bz2", date.Format("2006-01-02")))
-			if err != nil {
-				log.Fatal("Error constructing URL:", err)
-			}
-
-			fmt.Printf("Download from %s...\n", fullUrl)
-
-			response, err := http.Get(fullUrl)
-			if err != nil {
-				fmt.Printf("error getting from archive URL %s: %v", fullUrl, err)
-				return
-			}
-			defer func(Body io.ReadCloser) {
-				err := Body.Close()
+	for _, event := range [...]string{"FSDJump", "Location", "Docked"} {
+		for date := range iterateDays(downloadStartTime, downloadEndTime) {
+			func() {
+				fileName := fmt.Sprintf("Journal.%s-%s.jsonl.bz2", event, date.Format("2006-01-02"))
+				fullUrl, err := url.JoinPath(downloadUrl, date.Format("2006-01"), fileName)
 				if err != nil {
-					log.Println("Error closing response body:", err)
+					log.Fatal("Error constructing URL:", err)
 				}
-			}(response.Body)
 
-			decompressAndSend(response.Body, workerUrl)
-		}()
+				fmt.Printf("Download from %s...\n", fullUrl)
+
+				response, err := http.Get(fullUrl)
+				if err != nil {
+					fmt.Printf("error getting from archive URL %s: %v", fullUrl, err)
+					return
+				}
+				defer func(Body io.ReadCloser) {
+					err := Body.Close()
+					if err != nil {
+						log.Println("Error closing response body:", err)
+					}
+				}(response.Body)
+
+				if os.Getenv("DOWNLOAD_ONLY") == "true" {
+					writeToLocalFile(response.Body, date, fileName)
+				} else {
+					decompressAndSend(response.Body, workerUrl)
+				}
+			}()
+		}
 	}
 }
 
@@ -175,5 +183,39 @@ func decompressAndSend(reader io.Reader, workerUrl string) {
 	err := scanner.Err()
 	if err != nil {
 		log.Println("Error reading from bzip2 reader:", err)
+	}
+}
+
+func writeToLocalFile(reader io.Reader, date time.Time, fileName string) {
+	dir := filepath.Join(os.Getenv("ARCHIVE_FOLDER"), date.Format("2006-01"))
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+
+	fo, err := os.Create(filepath.Join(dir, fileName))
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err := fo.Close(); err != nil {
+			panic(err)
+		}
+	}()
+
+	buf := make([]byte, 1024)
+	for {
+		n, err := reader.Read(buf)
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+		if n == 0 {
+			break
+		}
+
+		// write a chunk
+		if _, err := fo.Write(buf[:n]); err != nil {
+			panic(err)
+		}
 	}
 }
