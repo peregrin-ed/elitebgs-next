@@ -26,9 +26,8 @@ export enum JournalEvents {
   Location = 'Location',
 }
 
-export type FSDJump = JournalMessage & {
+export type SystemMessage = JournalMessage & {
   message: {
-    event: JournalEvents.FSDJump
     SystemAddress: number
     SystemAllegiance: string
     SystemEconomy: string
@@ -47,6 +46,12 @@ export type FSDJump = JournalMessage & {
     PowerplayConflictProgress?: PowerplayConflict[]
     Conflicts?: FactionConflict[]
   }
+}
+
+export type FSDJump = SystemMessage & {
+    message: {
+        event: JournalEvents.FSDJump
+    }
 }
 
 export type FactionConflict = {
@@ -71,7 +76,11 @@ export type SystemFaction = {
   FactionState: string
 }
 
-export type Location = JournalMessage & {}
+export type Location = SystemMessage & {
+    message: {
+        event: JournalEvents.Location
+    }
+}
 
 export type Faction = SystemFaction & {
   Influence: number

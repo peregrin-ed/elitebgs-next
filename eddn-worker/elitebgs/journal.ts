@@ -1,4 +1,4 @@
-import type { EDDNBase, Faction, FSDJump, JournalMessage, State } from '@elitebgs/types/eddn.ts'
+import type { EDDNBase, Faction, JournalMessage, State, SystemMessage } from '@elitebgs/types/eddn.ts'
 import { JournalEvents } from '@elitebgs/types/eddn.ts'
 import { Op, Sequelize, Transaction } from 'sequelize'
 import { difference, isEqualWith, uniq } from 'lodash-es'
@@ -41,11 +41,11 @@ export class Journal {
       return { processed: false, processingMessages: [ProcessingMessages.EVENT_CHECK] }
     }
 
-    const messageBody = (message as FSDJump).message
+    const messageBody = (message as SystemMessage).message
     const messageHeader = message.header
 
     try {
-      const errors = await this.checkMessageJump(messageBody)
+      const errors = await this.checkSystemMessage(messageBody, message.message.event)
 
       // Skip processing if the message contains data invalid for EliteBGS.
       if (errors.length > 0) {
@@ -107,7 +107,7 @@ export class Journal {
    * if the name is the same and create an alias if not. An alias is only created if that alias is previously not
    * created. If the system address doesn't exist, a new record is created.
    */
-  private static async ensureSystemWAliases(message: FSDJump['message'], transaction: Transaction) {
+  private static async ensureSystemWAliases(message: SystemMessage['message'], transaction: Transaction) {
     let system = await Systems.findOne({
       where: { systemAddress: message.SystemAddress.toString() },
       include: [SystemAliases],
@@ -166,7 +166,7 @@ export class Journal {
    * a fresh history record is created.
    */
   private static async ensureSystemHistory(
-    message: FSDJump['message'],
+    message: SystemMessage['message'],
     header: EDDNBase['header'],
     system: Systems,
     factions: Factions[],
@@ -272,7 +272,7 @@ export class Journal {
    * Find the faction with the faction name. If the faction with the faction name doesn't exist, a new record is
    * created.
    */
-  private static async ensureFactions(message: FSDJump['message'], transaction: Transaction) {
+  private static async ensureFactions(message: SystemMessage['message'], transaction: Transaction) {
     const factionPromises = await Journal.PromiseSettle(
       message.Factions.map(async (messageFaction) => {
         let faction = await Factions.findOne({
@@ -317,7 +317,7 @@ export class Journal {
 
   /** Get all the current faction history records and all the historical records for the last 48 hours. */
   private static async ensureSystemFactionHistory(
-    message: FSDJump['message'],
+    message: SystemMessage['message'],
     header: EDDNBase['header'],
     system: Systems,
     factions: Factions[],
@@ -553,7 +553,7 @@ export class Journal {
   /** Compare a `SystemHistory` record with the system in a message field by field. */
   private static checkSystemHistoryEquality(
     record: SystemHistories,
-    message: FSDJump['message'],
+    message: SystemMessage['message'],
     systemFactionId: string,
   ): boolean {
     return (
@@ -598,63 +598,63 @@ export class Journal {
    * Checks if the message contains all required fields. If any field is missing, it logs a warning and returns false,
    * indicating that the message should not be processed.
    */
-  private static async checkMessageJump(message: FSDJump['message']) {
+  private static async checkSystemMessage(message: SystemMessage['message'], eventType: string) {
     const errors: string[] = []
     if (message.timestamp < new Date('2017-10-07T00:00:00Z') || message.timestamp > new Date()) {
       errors.push(
-        `Received FSDJump message with invalid timestamp: ${message.timestamp.toISOString()}. Skipping processing.`,
+        `Received ${eventType} message with invalid timestamp: ${message.timestamp.toISOString()}. Skipping processing.`,
       )
     }
     if (message.StarSystem === undefined) {
-      errors.push('Received FSDJump message without StarSystem. Skipping processing.')
+      errors.push('Received ${eventType} message without StarSystem. Skipping processing.')
     }
     if (message.SystemAddress === undefined) {
       errors.push(
-        `Received FSDJump message without SystemAddress. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemAddress. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.timestamp === undefined) {
-      errors.push(`Received FSDJump message without timestamp. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without timestamp. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     if (message.StarPos === undefined) {
-      errors.push(`Received FSDJump message without StarPos. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without StarPos. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     if (message.SystemSecurity === undefined) {
       errors.push(
-        `Received FSDJump message without SystemSecurity. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemSecurity. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.SystemGovernment === undefined) {
       errors.push(
-        `Received FSDJump message without SystemGovernment. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemGovernment. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.SystemAllegiance === undefined) {
       errors.push(
-        `Received FSDJump message without SystemAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.SystemEconomy === undefined) {
       errors.push(
-        `Received FSDJump message without SystemEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.SystemSecondEconomy === undefined) {
       errors.push(
-        `Received FSDJump message without SystemSecondEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without SystemSecondEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.Population === undefined) {
-      errors.push(`Received FSDJump message without Population. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without Population. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     if (!message.Factions || message.Factions.length === 0) {
-      errors.push(`Received FSDJump message without Factions. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without Factions. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     return errors
   }
 
   /** Fix certain issues that are expected in the incoming message. */
-  private static coerceMessage(message: FSDJump['message']) {
+  private static coerceMessage(message: SystemMessage['message']) {
     if (!message.SystemFaction.FactionState) {
       message.SystemFaction.FactionState = 'None'
     }

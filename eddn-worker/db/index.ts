@@ -18,6 +18,7 @@ export class DB {
       dialect: 'postgres',
       host: process.env.PG_HOST,
       port: parseInt(process.env.PG_PORT),
+      logging: false,
     })
   }
 

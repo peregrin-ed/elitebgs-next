@@ -19,6 +19,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const ArchiveFolderKey = "ARCHIVE_FOLDER"
+
+var JournalTypes = []string{"FSDJump", "Location", "Docked"}
+
 type message struct {
 	Header messageHeader `json:"header"`
 }
@@ -58,7 +62,7 @@ func downloadBzip2Files(workerUrl string) {
 		log.Fatal("Error parsing end date:", err)
 	}
 
-	for _, event := range [...]string{"FSDJump", "Location", "Docked"} {
+	for _, event := range JournalTypes {
 		for date := range iterateDays(downloadStartTime, downloadEndTime) {
 			func() {
 				fileName := fmt.Sprintf("Journal.%s-%s.jsonl.bz2", event, date.Format("2006-01-02"))
@@ -108,9 +112,27 @@ func iterateDays(startDate, endDate time.Time) iter.Seq[time.Time] {
 // readBzip2FromFiles reads bzip2 files from a specified archive folder, decompresses them, and sends the data to a
 // worker URL.
 func readBzip2FromFiles(workerUrl string) {
-	archiveFolder := os.Getenv("ARCHIVE_FOLDER")
+	archiveFolder := os.Getenv(ArchiveFolderKey)
+	dirs, err := os.ReadDir(archiveFolder)
+	if err != nil {
+		log.Fatal("Error reading archive folder:", err)
+	}
+	sort.Slice(dirs, func(i, j int) bool {
+		return dirs[i].Name() < dirs[j].Name()
+	})
 
-	files, err := os.ReadDir(archiveFolder)
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		readBzip2FromDirectory(workerUrl, dir)
+	}
+}
+
+// readBzip2FromDirectory reads all the files in the specified directory, decompresses them, and sends the data to a
+// worker URL.
+func readBzip2FromDirectory(workerUrl string, dir os.DirEntry) {
+	files, err := os.ReadDir(filepath.Join(os.Getenv(ArchiveFolderKey), dir.Name()))
 	if err != nil {
 		log.Fatal("Error reading archive folder:", err)
 	}
@@ -120,24 +142,26 @@ func readBzip2FromFiles(workerUrl string) {
 	})
 
 	for _, file := range files {
-		func() {
-			filePath := filepath.Join(archiveFolder, file.Name())
-			reader, err := os.Open(filePath)
-			if err != nil {
-				fmt.Printf("failed to open file %s: %v", filePath, err)
-				return
-			}
-			defer func(file *os.File) {
-				err := file.Close()
+		if strings.HasSuffix(file.Name(), ".bz2") {
+			func() {
+				filePath := filepath.Join(os.Getenv(ArchiveFolderKey), dir.Name(), file.Name())
+				reader, err := os.Open(filePath)
 				if err != nil {
-					log.Println("Error closing file:", err)
+					fmt.Printf("failed to open file %s: %v", filePath, err)
+					return
 				}
-			}(reader)
+				defer func(file *os.File) {
+					err := file.Close()
+					if err != nil {
+						log.Println("Error closing file:", err)
+					}
+				}(reader)
 
-			fmt.Printf("Processing %s...\n", filePath)
+				log.Printf("Processing %s...\n", filePath)
 
-			decompressAndSend(reader, workerUrl)
-		}()
+				decompressAndSend(reader, workerUrl)
+			}()
+		}
 	}
 }
 
@@ -149,35 +173,43 @@ func decompressAndSend(reader io.Reader, workerUrl string) {
 	counter := 0
 	for scanner.Scan() {
 		func() {
-			line := scanner.Text()
-			response, err := http.Post(workerUrl, "application/json", strings.NewReader(line))
-			if err != nil {
-				fmt.Printf("error posting to worker URL %s: %v", workerUrl, err)
-				return
-			}
-			defer func(Body io.ReadCloser) {
-				err := Body.Close()
+
+			// TODO: Remove this!
+			if counter < 2 {
+
+				line := scanner.Text()
+
+				println(line)
+
+				response, err := http.Post(workerUrl, "application/json", strings.NewReader(line))
 				if err != nil {
-					log.Println("Error closing response body:", err)
+					fmt.Printf("error posting to worker URL %s: %v", workerUrl, err)
+					return
 				}
-			}(response.Body)
-			_, err = io.Copy(io.Discard, response.Body)
-			if err != nil {
-				fmt.Printf("error reading and dumping response body: %v", err)
+				defer func(Body io.ReadCloser) {
+					err := Body.Close()
+					if err != nil {
+						log.Println("Error closing response body:", err)
+					}
+				}(response.Body)
+				_, err = io.Copy(io.Discard, response.Body)
+				if err != nil {
+					fmt.Printf("error reading and dumping response body: %v", err)
+				}
+				var messageData message
+				err = json.Unmarshal(scanner.Bytes(), &messageData)
+				if err != nil {
+					log.Println("Error closing file:", err)
+				}
+				elapsedTime := time.Since(startTime)
+				counter++
+				averageDuration := elapsedTime / time.Duration(counter)
+				log.Printf("Processed %s, average execution time %s, total execution time %s, iterations %d\n",
+					messageData.Header.GatewayTimestamp,
+					averageDuration.String(),
+					elapsedTime.String(),
+					counter)
 			}
-			var messageData message
-			err = json.Unmarshal(scanner.Bytes(), &messageData)
-			if err != nil {
-				log.Println("Error closing file:", err)
-			}
-			elapsedTime := time.Since(startTime)
-			counter++
-			averageDuration := elapsedTime / time.Duration(counter)
-			log.Printf("Processed %s, average execution time %s, total execution time %s, iterations %d\n",
-				messageData.Header.GatewayTimestamp,
-				averageDuration.String(),
-				elapsedTime.String(),
-				counter)
 		}()
 	}
 	err := scanner.Err()
@@ -186,20 +218,21 @@ func decompressAndSend(reader io.Reader, workerUrl string) {
 	}
 }
 
+// writeToLocalFile saves the data to a local file for future processing without having to re-download.
 func writeToLocalFile(reader io.Reader, date time.Time, fileName string) {
-	dir := filepath.Join(os.Getenv("ARCHIVE_FOLDER"), date.Format("2006-01"))
+	dir := filepath.Join(os.Getenv(ArchiveFolderKey), date.Format("2006-01"))
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
-		panic(err)
+		log.Printf("Error creating directory %s: %s", dir, err)
 	}
-
 	fo, err := os.Create(filepath.Join(dir, fileName))
 	if err != nil {
-		panic(err)
+		log.Printf("Error creating file %s: %s", fileName, err)
 	}
 	defer func() {
-		if err := fo.Close(); err != nil {
-			panic(err)
+		err := fo.Close()
+		if err != nil {
+			log.Println("Error closing file:", err)
 		}
 	}()
 
@@ -212,10 +245,8 @@ func writeToLocalFile(reader io.Reader, date time.Time, fileName string) {
 		if n == 0 {
 			break
 		}
-
-		// write a chunk
 		if _, err := fo.Write(buf[:n]); err != nil {
-			panic(err)
+			log.Println("Error writing data:", err)
 		}
 	}
 }
