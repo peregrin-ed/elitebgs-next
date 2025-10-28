@@ -1,4 +1,4 @@
-import type { EDDNBase, Faction, JournalMessage, State, SystemMessage } from '@elitebgs/types/eddn.ts'
+import type { EDDNBase, Faction, JournalMessage, Location, State, SystemMessage } from '@elitebgs/types/eddn.ts'
 import { JournalEvents } from '@elitebgs/types/eddn.ts'
 import { Op, Sequelize, Transaction } from 'sequelize'
 import { difference, isEqualWith, uniq } from 'lodash-es'
@@ -45,7 +45,11 @@ export class Journal {
     const messageHeader = message.header
 
     try {
-      const errors = await this.checkSystemMessage(messageBody, message.message.event)
+      let errors = await this.checkSystemMessage(messageBody, message.message.event)
+
+      if (errors.length === 0 && message.message.event === JournalEvents.Location) {
+        errors = await this.checkLocation((message as Location).message)
+      }
 
       // Skip processing if the message contains data invalid for EliteBGS.
       if (errors.length > 0) {
@@ -61,7 +65,7 @@ export class Journal {
     this.coerceMessage(messageBody)
 
     try {
-      const result = await sequelize.transaction(async (transaction) => {
+      return await sequelize.transaction(async (transaction) => {
         const {
           factions,
           processed: factionProcessed,
@@ -80,6 +84,12 @@ export class Journal {
         const { processed: factionHistoriesProcessed, processingMessages: factionHistoriesProcessingMessages } =
           await this.ensureSystemFactionHistory(messageBody, messageHeader, system, factions, transaction)
 
+        if (message.message.event === JournalEvents.Location) {
+
+          // TODO: Complete this
+
+        }
+
         // If no errors occur, then the `processed` value is determined based on if at least 1 entity was processed.
         // And all the messages generated are also returned.
         return {
@@ -90,8 +100,6 @@ export class Journal {
             .concat(factionHistoriesProcessingMessages),
         }
       })
-
-      return result
     } catch (err) {
       return {
         processed: false,
@@ -595,8 +603,8 @@ export class Journal {
   }
 
   /**
-   * Checks if the message contains all required fields. If any field is missing, it logs a warning and returns false,
-   * indicating that the message should not be processed.
+   * Checks if the system message contains all required fields. If any field is missing, it logs a warning and returns
+   * false, indicating that the message should not be processed.
    */
   private static async checkSystemMessage(message: SystemMessage['message'], eventType: string) {
     const errors: string[] = []
@@ -652,6 +660,62 @@ export class Journal {
     }
     return errors
   }
+
+  /**
+   * Checks if the location message contains all required fields. If any field is missing, it logs a warning and returns
+   * false, indicating that the message should not be processed.
+   */
+  private static async checkLocation(message: Location['message']) {
+    const errors: string[] = []
+    if (message.MarketID === undefined) {
+      errors.push(
+        `Received Location message without MarketID. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (message.DistFromStarLS === undefined) {
+      errors.push(
+        `Received Location message without DistFromStarLS. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (message.Docked === undefined) {
+      errors.push(
+        `Received Location message without Docked. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (message.StationAllegiance === undefined) {
+      errors.push(
+        `Received Location message without StationAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (!message.StationEconomies || message.StationEconomies.length === 0) {
+      errors.push(`Received Location message without StationEconomies. Skipping processing. StarSystem: ${message.StarSystem}`)
+    }
+    if (message.StationEconomy === undefined) {
+      errors.push(
+        `Received Location message without StationEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (message.StationGovernment === undefined) {
+      errors.push(
+        `Received Location message without StationGovernment. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (message.StationName === undefined) {
+      errors.push(
+        `Received Location message without StationName. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    if (!message.StationServices || message.StationServices.length === 0) {
+      errors.push(`Received Location message without StationServices. Skipping processing. StarSystem: ${message.StarSystem}`)
+    }
+    if (message.StationType === undefined) {
+      errors.push(
+        `Received Location message without StationType. Skipping processing. StarSystem: ${message.StarSystem}`,
+      )
+    }
+    return errors
+  }
+
 
   /** Fix certain issues that are expected in the incoming message. */
   private static coerceMessage(message: SystemMessage['message']) {

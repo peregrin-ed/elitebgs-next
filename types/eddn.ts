@@ -79,7 +79,22 @@ export type SystemFaction = {
 export type Location = SystemMessage & {
     message: {
         event: JournalEvents.Location
+        MarketID: number
+        DistFromStarLS: number
+        Docked: boolean
+        StationAllegiance: string
+        StationEconomies: StationEconomy[]
+        StationEconomy: string
+        StationGovernment: string
+        StationName: string
+        StationServices: string[]
+        StationType: string
     }
+}
+
+export type StationEconomy = {
+    Name: string
+    Proportion: number
 }
 
 export type Faction = SystemFaction & {
