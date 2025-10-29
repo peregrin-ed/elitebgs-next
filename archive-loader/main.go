@@ -175,7 +175,7 @@ func decompressAndSend(reader io.Reader, workerUrl string) {
 		func() {
 
 			// TODO: Remove this!
-			if counter < 20 {
+			if counter < 200 {
 
 				line := scanner.Text()
 

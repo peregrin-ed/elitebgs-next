@@ -45,11 +45,7 @@ export class Journal {
     const messageHeader = message.header
 
     try {
-      let errors = await this.checkSystemMessage(messageBody, message.message.event)
-
-      if (errors.length === 0 && message.message.event === JournalEvents.Location) {
-        errors = await this.checkLocation((message as Location).message)
-      }
+      const errors = await this.checkSystemMessage(messageBody, message.message.event)
 
       // Skip processing if the message contains data invalid for EliteBGS.
       if (errors.length > 0) {
@@ -86,7 +82,17 @@ export class Journal {
 
         if (message.message.event === JournalEvents.Location) {
 
-          // TODO: Complete this
+          const locationBody = (message as Location).message
+          if (locationBody.Docked === true) {
+
+            const errors = await this.checkLocation(locationBody)
+            if (errors.length === 0) {
+
+              // TODO: Complete this
+
+
+            }
+          }
 
         }
 
@@ -670,16 +676,6 @@ export class Journal {
     if (message.MarketID === undefined) {
       errors.push(
         `Received Location message without MarketID. Skipping processing. StarSystem: ${message.StarSystem}`,
-      )
-    }
-    if (message.DistFromStarLS === undefined) {
-      errors.push(
-        `Received Location message without DistFromStarLS. Skipping processing. StarSystem: ${message.StarSystem}`,
-      )
-    }
-    if (message.Docked === undefined) {
-      errors.push(
-        `Received Location message without Docked. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.StationAllegiance === undefined) {

@@ -1,38 +1,25 @@
 import type {
   CreationOptional,
-  HasManyCreateAssociationMixin,
-  HasManyGetAssociationsMixin,
+  ForeignKey,
   InferAttributes,
   InferCreationAttributes,
-  NonAttribute,
 } from 'sequelize'
 import { DataTypes, Model, Sequelize } from 'sequelize'
-import { SystemAliases } from './system_aliases.ts'
-import { SystemHistories } from './system_histories.ts'
-import { SystemFactionHistories } from './system_faction_histories.ts'
+import { Systems } from './systems.ts'
 
 export class Stations extends Model<
   InferAttributes<Stations>,
   InferCreationAttributes<Stations>
 > {
   declare id: CreationOptional<string>
+  declare systemId: ForeignKey<Systems['id']>
   declare station: string
   declare stationLower: string
-  declare marketId: string // TODO: Is this the unique ID for the station?
- // declare systemAddress: string
- // declare starPos: PointWCrs
+  declare marketId: string
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 
-  declare SystemAliases?: NonAttribute<SystemAliases[]>
-  declare createSystemAlias: HasManyCreateAssociationMixin<SystemAliases, 'systemId'>
-
-  declare getSystemHistories: HasManyGetAssociationsMixin<SystemHistories>
-  declare createSystemHistory: HasManyCreateAssociationMixin<SystemHistories, 'systemId'>
-
-  declare getSystemFactionHistories: HasManyGetAssociationsMixin<SystemFactionHistories>
-  declare createSystemFactionHistory: HasManyCreateAssociationMixin<SystemFactionHistories, 'systemId'>
 }
 
 export function StationsInit(sequelize: Sequelize) {
@@ -42,6 +29,10 @@ export function StationsInit(sequelize: Sequelize) {
         type: DataTypes.UUID,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
+      },
+      systemId: {
+        type: DataTypes.UUID,
+        allowNull: false,
       },
       station: {
         type: DataTypes.STRING,
@@ -69,15 +60,12 @@ export function StationsInit(sequelize: Sequelize) {
       sequelize,
       tableName: 'stations',
       underscored: true,
-      // TODO: Establish what indexes are needed
-      /*
       indexes: [
         {
           unique: true,
-          fields: ['system_address'],
+          fields: ['market_id'],
         },
       ],
-       */
     },
   )
 }

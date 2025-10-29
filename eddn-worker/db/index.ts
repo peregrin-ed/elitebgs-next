@@ -8,6 +8,8 @@ import { SystemFactionHistories, SystemFactionHistoriesInit } from './models/sys
 import { ActiveStates, ActiveStatesInit } from './models/active_states.ts'
 import { PendingStates, PendingStatesInit } from './models/pending_states.ts'
 import { RecoveringStates, RecoveringStatesInit } from './models/recovering_states.ts'
+import { Stations, StationsInit } from './models/stations.ts'
+import { StationHistories, StationHistoriesInit } from './models/station_histories.ts'
 
 export class DB {
   sequelize: Sequelize
@@ -62,6 +64,8 @@ export class DB {
     ActiveStatesInit(this.sequelize)
     PendingStatesInit(this.sequelize)
     RecoveringStatesInit(this.sequelize)
+    StationsInit(this.sequelize)
+    StationHistoriesInit(this.sequelize)
 
     Systems.hasMany(SystemAliases, {
       foreignKey: 'systemId',
@@ -77,6 +81,11 @@ export class DB {
       foreignKey: 'systemId',
     })
     SystemFactionHistories.belongsTo(Systems)
+
+    SystemFactionHistories.hasMany(Stations, {
+      foreignKey: 'systemId',
+    })
+    Stations.belongsTo(Systems)
 
     Factions.hasMany(SystemFactionHistories, {
       foreignKey: 'factionId',
@@ -97,6 +106,12 @@ export class DB {
       foreignKey: 'systemFactionId',
     })
     RecoveringStates.belongsTo(SystemFactionHistories)
+
+    Stations.hasMany(StationHistories, {
+      foreignKey: 'stationId',
+    })
+    StationHistories.belongsTo(Stations)
+
   }
 
   private async sync() {

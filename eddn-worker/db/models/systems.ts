@@ -11,6 +11,7 @@ import { type PointWCrs } from '@elitebgs/types/geoJson.ts'
 import { SystemAliases } from './system_aliases.ts'
 import { SystemHistories } from './system_histories.ts'
 import { SystemFactionHistories } from './system_faction_histories.ts'
+import { Stations } from './stations.ts'
 
 export class Systems extends Model<
   InferAttributes<Systems>,
@@ -33,6 +34,10 @@ export class Systems extends Model<
 
   declare getSystemFactionHistories: HasManyGetAssociationsMixin<SystemFactionHistories>
   declare createSystemFactionHistory: HasManyCreateAssociationMixin<SystemFactionHistories, 'systemId'>
+
+  declare getStations: HasManyGetAssociationsMixin<Stations>
+  declare createStation: HasManyCreateAssociationMixin<Stations, 'systemId'>
+
 }
 
 export function SystemsInit(sequelize: Sequelize) {
