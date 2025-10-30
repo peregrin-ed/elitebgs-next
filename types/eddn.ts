@@ -14,6 +14,7 @@ export type EDDNBase = {
 export enum JournalEvents {
   FSDJump = 'FSDJump',
   Location = 'Location',
+  Docked = 'Docked',
 }
 
 export type JournalMessage = EDDNBase & {

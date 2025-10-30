@@ -1,4 +1,12 @@
-import type { EDDNBase, Faction, JournalMessage, Location, State, SystemMessage } from '@elitebgs/types/eddn.ts'
+import type {
+  EDDNBase,
+  Faction,
+  JournalMessage,
+  Location,
+  State,
+  StationMessage,
+  SystemMessage,
+} from '@elitebgs/types/eddn.ts'
 import { JournalEvents } from '@elitebgs/types/eddn.ts'
 import { Op, Sequelize, Transaction } from 'sequelize'
 import { difference, isEqualWith, uniq } from 'lodash-es'
@@ -35,51 +43,51 @@ export class Journal {
    * Tracks the system from the journal message. This method is called when a journal message is received and matches
    * the schema for journal messages.
    */
-  static async trackSystem(message: JournalMessage, sequelize: Sequelize): Promise<TrackSystemResponse> {
-    if (message.message.event !== JournalEvents.FSDJump && message.message.event !== JournalEvents.Location) {
-      // Only track FSDJump and Location events.
+  static async trackSystem(journalMsg: JournalMessage, sequelize: Sequelize): Promise<TrackSystemResponse> {
+
+    // Only process FSDJump, Location and Docked event types
+    if (
+      journalMsg.message.event !== JournalEvents.FSDJump &&
+      journalMsg.message.event !== JournalEvents.Location &&
+      journalMsg.message.event !== JournalEvents.Docked
+    ) {
       return { processed: false, processingMessages: [ProcessingMessages.EVENT_CHECK] }
     }
 
-    const messageBody = (message as SystemMessage).message
-    const messageHeader = message.header
-
-    try {
-      const errors = await this.checkSystemMessage(messageBody, message.message.event)
-
-      // Skip processing if the message contains data invalid for EliteBGS.
-      if (errors.length > 0) {
-        return { processed: false, processingMessages: errors }
-      }
-    } catch (err) {
-      return {
-        processed: false,
-        processingMessages: [ProcessingMessages.VALIDATION_ERROR(err)],
-      }
+    const { validStationMessage, errors } = await this.checkMessage(journalMsg)
+    if (errors.length > 0) {
+      return { processed: false, processingMessages: errors }
     }
 
-    this.coerceMessage(messageBody)
+    this.coerceMessage(journalMsg)
 
     try {
-      return await sequelize.transaction(async (transaction) => {
-        const {
-          factions,
-          processed: factionProcessed,
-          processingMessages: factionProcessingMessages,
-        } = await this.ensureFactions(messageBody, transaction)
+      const messageHeader = journalMsg.header
+      let systemId: string
+      if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
+        const messageBody = (journalMsg as SystemMessage).message
 
-        const {
-          system,
-          processed: systemProcessed,
-          processingMessages: systemProcessingMessages,
-        } = await this.ensureSystemWAliases(messageBody, transaction)
+        return await sequelize.transaction(async (transaction) => {
+          const {
+            factions,
+            processed: factionProcessed,
+            processingMessages: factionProcessingMessages,
+          } = await this.ensureFactions(messageBody, transaction)
 
-        const { processed: systemHistoriesProcessed, processingMessages: systemHistoriesProcessingMessages } =
-          await this.ensureSystemHistory(messageBody, messageHeader, system, factions, transaction)
+          const {
+            system,
+            processed: systemProcessed,
+            processingMessages: systemProcessingMessages,
+          } = await this.ensureSystemWAliases(messageBody, transaction)
+          systemId = system.id
+          console.log(`***** ${systemId} -> ${validStationMessage}`)
 
-        const { processed: factionHistoriesProcessed, processingMessages: factionHistoriesProcessingMessages } =
-          await this.ensureSystemFactionHistory(messageBody, messageHeader, system, factions, transaction)
+          const { processed: systemHistoriesProcessed, processingMessages: systemHistoriesProcessingMessages } =
+            await this.ensureSystemHistory(messageBody, messageHeader, system, factions, transaction)
 
+          const { processed: factionHistoriesProcessed, processingMessages: factionHistoriesProcessingMessages } =
+            await this.ensureSystemFactionHistory(messageBody, messageHeader, system, factions, transaction)
+          /*
         if (message.message.event === JournalEvents.Location) {
 
           const locationBody = (message as Location).message
@@ -89,24 +97,25 @@ export class Journal {
             if (errors.length === 0) {
 
               // TODO: Complete this
-              console.log(`***** ${locationBody.StationFaction.Name} -> ${locationBody.StationFaction.FactionState}`)
-
 
             }
           }
 
         }
 
-        // If no errors occur, then the `processed` value is determined based on if at least 1 entity was processed.
-        // And all the messages generated are also returned.
-        return {
-          processed: systemProcessed || systemHistoriesProcessed || factionProcessed || factionHistoriesProcessed,
-          processingMessages: systemProcessingMessages
-            .concat(systemHistoriesProcessingMessages)
-            .concat(factionProcessingMessages)
-            .concat(factionHistoriesProcessingMessages),
-        }
-      })
+ */
+
+          // If no errors occur, then the `processed` value is determined based on if at least 1 entity was processed.
+          // And all the messages generated are also returned.
+          return {
+            processed: systemProcessed || systemHistoriesProcessed || factionProcessed || factionHistoriesProcessed,
+            processingMessages: systemProcessingMessages
+              .concat(systemHistoriesProcessingMessages)
+              .concat(factionProcessingMessages)
+              .concat(factionHistoriesProcessingMessages),
+          }
+        })
+      }
     } catch (err) {
       return {
         processed: false,
@@ -610,6 +619,54 @@ export class Journal {
   }
 
   /**
+   * Checks if the message contains all required fields based on the event type. If any field is missing, returns the
+   * relevant error(s). Also returns whether a valid station-related message was found in the journal message
+   */
+  private static async checkMessage(journalMsg: JournalMessage) {
+    try {
+
+      let validStationMessage = false
+
+      if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
+        // For FSDJump and Location messages, check that the system-related attributes are valid. Note that for Location
+        // messages, even if the station-related fields aren't valid, we still process the system-related information
+        const errors = await this.checkSystemMessage((journalMsg as SystemMessage).message, journalMsg.message.event)
+        // Skip processing if the message contains data invalid for EliteBGS.
+        if (errors.length > 0) {
+          return { validStationMessage: false, errors: errors }
+        }
+
+        if (journalMsg.message.event === JournalEvents.Location) {
+          // For Location messages, only check that the station-related attributes are valid if Docked is true, but
+          // don't return any errors even if the attributes aren't valid
+          const locationMsg = (journalMsg as Location).message
+          if (locationMsg.Docked === true) {
+            const errors = await this.checkStationMessage((journalMsg as StationMessage).message, journalMsg.message.event)
+            validStationMessage = errors.length === 0
+          }
+        }
+
+      } else if (journalMsg.message.event === JournalEvents.Docked) {
+        // For Docked messages, always check the station-related attributes are valid
+        const errors = await this.checkStationMessage((journalMsg as StationMessage).message, journalMsg.message.event)
+        if (errors.length > 0) {
+          return { validStationMessage: false, errors: errors }
+        }
+        validStationMessage = true
+      }
+
+      return {
+        validStationMessage: validStationMessage, errors: [],
+      }
+    } catch (err) {
+      return {
+        validStationMessage: false, errors: [ProcessingMessages.VALIDATION_ERROR(err)],
+      }
+    }
+
+  }
+
+  /**
    * Checks if the system message contains all required fields. If any field is missing, it logs a warning and returns
    * false, indicating that the message should not be processed.
    */
@@ -669,55 +726,57 @@ export class Journal {
   }
 
   /**
-   * Checks if the location message contains all required fields. If any field is missing, it logs a warning and returns
-   * false, indicating that the message should not be processed.
+   * Checks if the station-related message contains all required fields. If any field is missing, it logs a warning and
+   * returns false, indicating that the message should not be processed.
    */
-  private static async checkLocation(message: Location['message']) {
+  private static async checkStationMessage(message: StationMessage['message'], eventType: string) {
     const errors: string[] = []
     if (message.MarketID === undefined) {
       errors.push(
-        `Received Location message without MarketID. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without MarketID. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.StationAllegiance === undefined) {
       errors.push(
-        `Received Location message without StationAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without StationAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (!message.StationEconomies || message.StationEconomies.length === 0) {
-      errors.push(`Received Location message without StationEconomies. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without StationEconomies. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     if (message.StationEconomy === undefined) {
       errors.push(
-        `Received Location message without StationEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without StationEconomy. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.StationGovernment === undefined) {
       errors.push(
-        `Received Location message without StationGovernment. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without StationGovernment. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (message.StationName === undefined) {
       errors.push(
-        `Received Location message without StationName. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without StationName. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     if (!message.StationServices || message.StationServices.length === 0) {
-      errors.push(`Received Location message without StationServices. Skipping processing. StarSystem: ${message.StarSystem}`)
+      errors.push(`Received ${eventType} message without StationServices. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
     if (message.StationType === undefined) {
       errors.push(
-        `Received Location message without StationType. Skipping processing. StarSystem: ${message.StarSystem}`,
+        `Received ${eventType} message without StationType. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
     return errors
   }
 
-
   /** Fix certain issues that are expected in the incoming message. */
-  private static coerceMessage(message: SystemMessage['message']) {
-    if (!message.SystemFaction.FactionState) {
-      message.SystemFaction.FactionState = 'None'
+  private static coerceMessage(journalMsg: JournalMessage) {
+    if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
+      const systemMsg = (journalMsg as SystemMessage).message
+      if (!systemMsg.SystemFaction.FactionState) {
+        systemMsg.SystemFaction.FactionState = 'None'
+      }
     }
   }
 
