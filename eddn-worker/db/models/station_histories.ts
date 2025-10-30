@@ -1,6 +1,16 @@
-import type { CreationOptional, ForeignKey, InferAttributes, InferCreationAttributes } from 'sequelize'
+import type {
+  CreationOptional,
+  ForeignKey,
+  HasManyCreateAssociationMixin,
+  HasManyGetAssociationsMixin,
+  InferAttributes,
+  InferCreationAttributes,
+} from 'sequelize'
 import { DataTypes, Model, Sequelize } from 'sequelize'
 import { Stations } from './stations.ts'
+import { Factions } from './factions.ts'
+import { StationHistoriesServices } from './station_histories_services.ts'
+import { StationHistoriesEconomies } from './station_histories_economies.ts'
 
 export class StationHistories extends Model<InferAttributes<StationHistories>, InferCreationAttributes<StationHistories>> {
   declare id: CreationOptional<string>
@@ -10,17 +20,20 @@ export class StationHistories extends Model<InferAttributes<StationHistories>, I
   declare stationEconomy: string
   declare stationGovernment: string
   declare stationType: string
-
-  /*
-        StationEconomies?: StationEconomy[]
-        StationFaction?: SystemFaction
-        StationServices?: string[]
-   */
+  declare stationFactionId: ForeignKey<Factions['id']>
+  declare stationFactionState: string
+  // TODO: Do we have a stationState attribute in the Journal?
   declare validFrom: Date
   declare validTo: Date
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
+
+  declare getStationHistoriesServices: HasManyGetAssociationsMixin<StationHistoriesServices>
+  declare createStationHistoriesServices: HasManyCreateAssociationMixin<StationHistoriesServices, 'stationHistoryId'>
+
+  declare getStationHistoriesEconomies: HasManyGetAssociationsMixin<StationHistoriesEconomies>
+  declare createStationHistoriesEconomies: HasManyCreateAssociationMixin<StationHistoriesEconomies, 'stationHistoryId'>
 }
 
 export function StationHistoriesInit(sequelize: Sequelize) {
@@ -52,6 +65,14 @@ export function StationHistoriesInit(sequelize: Sequelize) {
         allowNull: false,
       },
       stationType: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      stationFactionId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+      },
+      stationFactionState: {
         type: DataTypes.STRING,
         allowNull: false,
       },

@@ -10,6 +10,8 @@ import { PendingStates, PendingStatesInit } from './models/pending_states.ts'
 import { RecoveringStates, RecoveringStatesInit } from './models/recovering_states.ts'
 import { Stations, StationsInit } from './models/stations.ts'
 import { StationHistories, StationHistoriesInit } from './models/station_histories.ts'
+import { StationHistoriesServices, StationHistoriesServicesInit } from './models/station_histories_services.ts'
+import { StationHistoriesEconomies, StationHistoriesEconomiesInit } from './models/station_histories_economies.ts'
 
 export class DB {
   sequelize: Sequelize
@@ -66,6 +68,8 @@ export class DB {
     RecoveringStatesInit(this.sequelize)
     StationsInit(this.sequelize)
     StationHistoriesInit(this.sequelize)
+    StationHistoriesServicesInit(this.sequelize)
+    StationHistoriesEconomiesInit(this.sequelize)
 
     Systems.hasMany(SystemAliases, {
       foreignKey: 'systemId',
@@ -111,6 +115,16 @@ export class DB {
       foreignKey: 'stationId',
     })
     StationHistories.belongsTo(Stations)
+
+    StationHistories.hasMany(StationHistoriesServices, {
+      foreignKey: 'stationHistoryId',
+    })
+    StationHistoriesServices.belongsTo(StationHistories)
+
+    StationHistories.hasMany(StationHistories, {
+      foreignKey: 'stationHistoryId',
+    })
+    StationHistoriesEconomies.belongsTo(StationHistories);
 
   }
 

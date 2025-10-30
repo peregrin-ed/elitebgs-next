@@ -12,8 +12,8 @@ export type EDDNBase = {
 }
 
 export enum JournalEvents {
-    FSDJump = 'FSDJump',
-    Location = 'Location',
+  FSDJump = 'FSDJump',
+  Location = 'Location',
 }
 
 export type JournalMessage = EDDNBase & {
@@ -21,7 +21,6 @@ export type JournalMessage = EDDNBase & {
     event: JournalEvents,
     timestamp: Date,
     StarSystem: string,
-    StarPos: number[]
     // Todo: Add SystemAddress here once the import for January 2019 is done.
   }
 }
@@ -29,6 +28,7 @@ export type JournalMessage = EDDNBase & {
 export type SystemMessage = JournalMessage & {
   message: {
     SystemAddress: number
+    StarPos: number[]
     SystemAllegiance: string
     SystemEconomy: string
     SystemSecondEconomy: string
@@ -48,28 +48,26 @@ export type SystemMessage = JournalMessage & {
   }
 }
 
-// noinspection JSUnusedGlobalSymbols
-export type FSDJump = SystemMessage & {
-    message: {
-        event: JournalEvents.FSDJump
-    }
+export type StationMessage = JournalMessage & {
+  message: {
+    MarketID?: number
+    DistFromStarLS?: number
+    StationAllegiance?: string
+    StationEconomies?: StationEconomy[]
+    StationEconomy?: string
+    StationFaction?: SystemFaction
+    StationGovernment?: string
+    StationName?: string
+    StationServices?: string[]
+    StationType?: string
+  }
 }
 
-export type Location = SystemMessage & {
-    message: {
-        event: JournalEvents.Location
-        Docked: boolean
-        MarketID?: number
-        DistFromStarLS?: number
-        StationAllegiance?: string
-        StationEconomies?: StationEconomy[]
-        StationEconomy?: string
-        StationFaction?: SystemFaction
-        StationGovernment?: string
-        StationName?: string
-        StationServices?: string[]
-        StationType?: string
-    }
+export type Location = SystemMessage & StationMessage & {
+  message: {
+    event: JournalEvents.Location
+    Docked: boolean
+  }
 }
 
 export type ConflictFaction = {
@@ -79,9 +77,9 @@ export type ConflictFaction = {
 }
 
 export type FactionConflict = {
-    WarType: string
-    Status: string
-    Faction1: ConflictFaction
+  WarType: string
+  Status: string
+  Faction1: ConflictFaction
 }
 
 export type PowerplayConflict = {
@@ -90,13 +88,13 @@ export type PowerplayConflict = {
 }
 
 export type StationEconomy = {
-    Name: string
-    Proportion: number
+  Name: string
+  Proportion: number
 }
 
 export type State = {
-    State: string
-    Trend: number
+  State: string
+  Trend: number
 }
 
 export type SystemFaction = {

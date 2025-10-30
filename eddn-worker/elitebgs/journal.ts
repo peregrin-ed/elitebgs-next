@@ -89,6 +89,7 @@ export class Journal {
             if (errors.length === 0) {
 
               // TODO: Complete this
+              console.log(`***** ${locationBody.StationFaction.Name} -> ${locationBody.StationFaction.FactionState}`)
 
 
             }
