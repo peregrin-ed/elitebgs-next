@@ -22,7 +22,6 @@ export class StationHistories extends Model<InferAttributes<StationHistories>, I
   declare stationType: string
   declare stationFactionId: ForeignKey<Factions['id']>
   declare stationFactionState: string
-  // TODO: Do we have a stationState attribute in the Journal?
   declare validFrom: Date
   declare validTo: Date
 

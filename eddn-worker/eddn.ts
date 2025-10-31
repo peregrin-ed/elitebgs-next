@@ -25,9 +25,6 @@ export class EDDN {
       processingMessages = ['Received message not from the Journal schema. Skipping processing.']
     }
     await EDDN.saveMessage(message.$schemaRef, message.header, message, processed, processingMessages)
-    if (!processed) {
-      console.log(`${processingMessages}`)
-    }
   }
 
   private static handleMessageSoftware(softwareName: string, softwareVersion: string): boolean {

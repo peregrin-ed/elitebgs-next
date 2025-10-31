@@ -54,12 +54,12 @@ export class Journal {
       return { processed: false, processingMessages: [ProcessingMessages.EVENT_CHECK] }
     }
 
-    const { validStationMessage, errors } = await this.checkMessage(journalMsg)
+    const { hasStationDetails, errors } = await this.checkMessage(journalMsg)
     if (errors.length > 0) {
       return { processed: false, processingMessages: errors }
     }
 
-    this.coerceMessage(journalMsg)
+    this.coerceMessage(journalMsg, hasStationDetails)
 
     try {
       const messageHeader = journalMsg.header
@@ -80,7 +80,7 @@ export class Journal {
             processingMessages: systemProcessingMessages,
           } = await this.ensureSystemWAliases(messageBody, transaction)
           systemId = system.id
-          console.log(`***** ${systemId} -> ${validStationMessage}`)
+          console.log(`***** ${systemId} -> ${hasStationDetails}`)
 
           const { processed: systemHistoriesProcessed, processingMessages: systemHistoriesProcessingMessages } =
             await this.ensureSystemHistory(messageBody, messageHeader, system, factions, transaction)
@@ -625,7 +625,7 @@ export class Journal {
   private static async checkMessage(journalMsg: JournalMessage) {
     try {
 
-      let validStationMessage = false
+      let hasStationDetails = false
 
       if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
         // For FSDJump and Location messages, check that the system-related attributes are valid. Note that for Location
@@ -633,7 +633,7 @@ export class Journal {
         const errors = await this.checkSystemMessage((journalMsg as SystemMessage).message, journalMsg.message.event)
         // Skip processing if the message contains data invalid for EliteBGS.
         if (errors.length > 0) {
-          return { validStationMessage: false, errors: errors }
+          return { hasStationDetails: false, errors: errors }
         }
 
         if (journalMsg.message.event === JournalEvents.Location) {
@@ -642,7 +642,7 @@ export class Journal {
           const locationMsg = (journalMsg as Location).message
           if (locationMsg.Docked === true) {
             const errors = await this.checkStationMessage((journalMsg as StationMessage).message, journalMsg.message.event)
-            validStationMessage = errors.length === 0
+            hasStationDetails = errors.length === 0
           }
         }
 
@@ -650,17 +650,17 @@ export class Journal {
         // For Docked messages, always check the station-related attributes are valid
         const errors = await this.checkStationMessage((journalMsg as StationMessage).message, journalMsg.message.event)
         if (errors.length > 0) {
-          return { validStationMessage: false, errors: errors }
+          return { hasStationDetails: false, errors: errors }
         }
-        validStationMessage = true
+        hasStationDetails = true
       }
 
       return {
-        validStationMessage: validStationMessage, errors: [],
+        hasStationDetails: hasStationDetails, errors: [],
       }
     } catch (err) {
       return {
-        validStationMessage: false, errors: [ProcessingMessages.VALIDATION_ERROR(err)],
+        hasStationDetails: false, errors: [ProcessingMessages.VALIDATION_ERROR(err)],
       }
     }
 
@@ -736,11 +736,6 @@ export class Journal {
         `Received ${eventType} message without MarketID. Skipping processing. StarSystem: ${message.StarSystem}`,
       )
     }
-    if (message.StationAllegiance === undefined) {
-      errors.push(
-        `Received ${eventType} message without StationAllegiance. Skipping processing. StarSystem: ${message.StarSystem}`,
-      )
-    }
     if (!message.StationEconomies || message.StationEconomies.length === 0) {
       errors.push(`Received ${eventType} message without StationEconomies. Skipping processing. StarSystem: ${message.StarSystem}`)
     }
@@ -771,11 +766,20 @@ export class Journal {
   }
 
   /** Fix certain issues that are expected in the incoming message. */
-  private static coerceMessage(journalMsg: JournalMessage) {
+  private static coerceMessage(journalMsg: JournalMessage, hasStationDetails: boolean) {
     if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
       const systemMsg = (journalMsg as SystemMessage).message
       if (!systemMsg.SystemFaction.FactionState) {
         systemMsg.SystemFaction.FactionState = 'None'
+      }
+    }
+    if (hasStationDetails) {
+      const stationMsg = (journalMsg as StationMessage).message
+      if (!stationMsg.StationAllegiance) {
+        stationMsg.StationAllegiance = 'Independent'
+      }
+      if (stationMsg.StationFaction && !stationMsg.StationFaction.FactionState) {
+        stationMsg.StationFaction.FactionState = 'None'
       }
     }
   }
