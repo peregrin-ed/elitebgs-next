@@ -1,5 +1,5 @@
 export class ProcessingMessages {
-  static EVENT_CHECK = 'Not a FSDJump or Location event. Skipping processing.'
+  static EVENT_CHECK = 'Not a FSDJump, Location or Docked event. Skipping processing.'
 
   static VALIDATION_ERROR(err: unknown) {
     return `Error occurred while validating message. Skipping processing. Error: ${err}`
@@ -14,6 +14,8 @@ export class ProcessingMessages {
   static SYSTEM_ALIAS_UPDATED = 'System alias updated.'
 
   static SYSTEM_NOT_UPDATED = 'System not updated.'
+
+  static SYSTEM_NOT_FOUND = 'System not found.'
 
   static SYSTEM_HISTORY_NOT_UPDATED = 'Message is the same as the current system history record.'
 

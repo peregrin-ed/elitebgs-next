@@ -22,13 +22,14 @@ export type JournalMessage = EDDNBase & {
     event: JournalEvents,
     timestamp: Date,
     StarSystem: string,
-    // Todo: Add SystemAddress here once the import for January 2019 is done.
+    // TODO: This attribute was in the SystemMessage - we need to support journals without this property from before
+    //  approx January 2019 (date to be confirmed)
+    SystemAddress: number
   }
 }
 
 export type SystemMessage = JournalMessage & {
   message: {
-    SystemAddress: number
     StarPos: number[]
     SystemAllegiance: string
     SystemEconomy: string
