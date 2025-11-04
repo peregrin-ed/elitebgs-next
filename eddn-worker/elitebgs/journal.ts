@@ -19,8 +19,11 @@ import { PendingStates } from '../db/models/pending_states.ts'
 import { SystemFactionHistories } from '../db/models/system_faction_histories.ts'
 import { ProcessingMessages } from '../processing-messages.ts'
 import { SystemHistories } from '../db/models/system_histories.ts'
+import { Stations } from '../db/models/stations.ts'
+import { StationAliases } from '../db/models/station_aliases.ts'
+import { StationHistories } from '../db/models/station_histories.ts'
 
-export type TrackSystemResponse = {
+export type TrackResponse = {
   processed: boolean
   processingMessages: string[]
 }
@@ -43,7 +46,7 @@ export class Journal {
    * Tracks the system from the journal message. This method is called when a journal message is received and matches
    * the schema for journal messages.
    */
-  static async trackSystem(journalMsg: JournalMessage, sequelize: Sequelize): Promise<TrackSystemResponse> {
+  static async trackSystem(journalMsg: JournalMessage, sequelize: Sequelize): Promise<TrackResponse> {
 
     // Only process FSDJump, Location and Docked event types
     if (
@@ -65,7 +68,7 @@ export class Journal {
       return await sequelize.transaction(async (transaction) => {
         // First handle any system-related details
         if (hasSystemDetails) {
-          return await this.processSystemMessage(journalMsg.header, (journalMsg as SystemMessage), transaction)
+          return await this.processSystemMessage(journalMsg.header, journalMsg as SystemMessage, transaction)
         } else {
           return {
             system: null,
@@ -76,10 +79,15 @@ export class Journal {
       }).then(systemResult => {
         return sequelize.transaction(async (transaction) => {
           // Next handle any station-related details
-          if (hasStationDetails) {
+          let stationResult: TrackResponse
 
-            if (!systemResult.system) {
-              const system = await Systems.findOne({
+          if (hasStationDetails) {
+            let system: Systems
+            if (systemResult.system) {
+              system = systemResult.system
+            } else {
+              // Load the system based on the system address
+              system = await Systems.findOne({
                 where: { systemAddress: journalMsg.message.SystemAddress.toString() },
                 transaction,
               })
@@ -88,13 +96,21 @@ export class Journal {
               }
             }
 
-            const stationResult = await this.processStationMessage((journalMsg as StationMessage), transaction)
-            if (stationResult) {
-              console.log(`Got result`)
+            stationResult = await this.processStationMessage(journalMsg.header, journalMsg as StationMessage, system, transaction)
+
+          } else {
+            // No station details
+            stationResult = {
+              processed: false,
+              processingMessages: [],
             }
           }
-          // TODO: Return the correct values
-          return systemResult;
+
+          return {
+            processed: systemResult.processed || stationResult.processed,
+            processingMessages: systemResult.processingMessages
+              .concat(stationResult.processingMessages),
+          };
         })
       })
     } catch (err) {
@@ -140,12 +156,42 @@ export class Journal {
 
   }
 
-  private static async processStationMessage(stationMsg: StationMessage, transaction: Transaction) {
-    console.log(`Processing station message for ${stationMsg.message.MarketID} with txn ${transaction}`)
+  private static async processStationMessage(messageHeader: EDDNBase["header"], stationMsg: StationMessage,
+                                             system: Systems, transaction: Transaction) {
+    console.log(`Processing station message for ${stationMsg.message.MarketID} for system ${system.starSystem}`)
 
-    // TODO: Implement this function
+    const faction = await Factions.findOne({
+      where: { nameLower: stationMsg.message.StationFaction.Name.toLowerCase() },
+      transaction,
+    })
+    if (!faction) {
+      return {
+        processed: false,
+        processingMessages: [ProcessingMessages.FACTION_NOT_FOUND(stationMsg.message.StationFaction.Name)],
+      }
+    } else {
+      // TODO: Determine if we want to actually update the faction based on its FactionState value - probably not?
+    }
 
-    return true
+    const {
+      station,
+      processed: stationProcessed,
+      processingMessages: stationProcessingMessages,
+    } = await this.ensureStationWAliases(stationMsg.message, system, transaction)
+
+    const {
+      processed: stationHistoriesProcessed,
+      processingMessages: stationHistoriesProcessingMessages
+    } = await this.ensureStationHistory(stationMsg.message, messageHeader, station, faction, transaction)
+
+    // TODO: Finish implementing this function
+
+    // TODO: Return the correct processed value and processing messages
+    return {
+      processed: stationProcessed || stationHistoriesProcessed,
+      processingMessages: stationProcessingMessages
+        .concat(stationHistoriesProcessingMessages),
+    }
   }
 
   /**
@@ -218,13 +264,6 @@ export class Journal {
     factions: Factions[],
     transaction: Transaction,
   ) {
-    let timeNow: number
-    if (process.env.LOAD_ARCHIVE === 'true') {
-      timeNow = header.gatewayTimestamp.getTime()
-    } else {
-      timeNow = Date.now()
-    }
-
     // Get the current status of the system by finding the record which doesn't have a `validTo`.
     const currentSystemStatusPromise = system.getSystemHistories({
       where: {
@@ -241,7 +280,7 @@ export class Journal {
     const systemHistoriesPromise = system.getSystemHistories({
       where: {
         validFrom: {
-          [Op.gte]: new Date(timeNow - 172800000),
+          [Op.gte]: this.validFrom(header),
         },
         validTo: {
           [Op.not]: null,
@@ -315,42 +354,13 @@ export class Journal {
   }
 
   /**
-   * Find the faction with the faction name. If the faction with the faction name doesn't exist, a new record is
-   * created.
+   * Find all the relevant factions by their faction names. If a faction with the faction name doesn't exist, a new
+   * record is created.
    */
   private static async ensureFactions(message: SystemMessage['message'], transaction: Transaction) {
     const factionPromises = await Journal.PromiseSettle(
       message.Factions.map(async (messageFaction) => {
-        let faction = await Factions.findOne({
-          where: { nameLower: messageFaction.Name.toLowerCase() },
-          transaction,
-        })
-
-        if (!faction) {
-          faction = await Factions.create(
-            {
-              name: messageFaction.Name,
-              nameLower: messageFaction.Name.toLowerCase(),
-              government: messageFaction.Government,
-              allegiance: messageFaction.Allegiance,
-            },
-            {
-              transaction,
-            },
-          )
-
-          return {
-            faction,
-            processed: true,
-            processingMessages: [ProcessingMessages.FACTION_CREATED(messageFaction.Name)],
-          }
-        }
-
-        return {
-          faction,
-          processed: false,
-          processingMessages: [ProcessingMessages.FACTION_NOT_UPDATED(messageFaction.Name)],
-        }
+        return this.ensureFaction(messageFaction, transaction)
       }),
     )
 
@@ -358,6 +368,43 @@ export class Journal {
       factions: factionPromises.map((factionPromise) => factionPromise.faction),
       processed: factionPromises.some((factionPromise) => factionPromise.processed),
       processingMessages: factionPromises.flatMap((factionPromise) => factionPromise.processingMessages),
+    }
+  }
+
+  /**
+   * Find the faction with the faction name. If the faction with the faction name doesn't exist, a new record is
+   * created.
+   */
+  private static async ensureFaction(messageFaction: Faction, transaction: Transaction) {
+    let faction = await Factions.findOne({
+      where: { nameLower: messageFaction.Name.toLowerCase() },
+      transaction,
+    })
+
+    if (!faction) {
+      faction = await Factions.create(
+        {
+          name: messageFaction.Name,
+          nameLower: messageFaction.Name.toLowerCase(),
+          government: messageFaction.Government,
+          allegiance: messageFaction.Allegiance,
+        },
+        {
+          transaction,
+        },
+      )
+
+      return {
+        faction,
+        processed: true,
+        processingMessages: [ProcessingMessages.FACTION_CREATED(messageFaction.Name)],
+      }
+    }
+
+    return {
+      faction,
+      processed: false,
+      processingMessages: [ProcessingMessages.FACTION_NOT_UPDATED(messageFaction.Name)],
     }
   }
 
@@ -369,13 +416,6 @@ export class Journal {
     factions: Factions[],
     transaction: Transaction,
   ) {
-    let timeNow: number
-    if (process.env.LOAD_ARCHIVE === 'true') {
-      timeNow = header.gatewayTimestamp.getTime()
-    } else {
-      timeNow = Date.now()
-    }
-
     // Get the current status of all the factions currently in the system, determined by searching for records that
     // don't have a `validTo` entry.
     const currentFactionsStatusPromise = system.getSystemFactionHistories({
@@ -396,7 +436,7 @@ export class Journal {
     const factionHistoriesPromise = system.getSystemFactionHistories({
       where: {
         validFrom: {
-          [Op.gte]: new Date(timeNow - 172800000),
+          [Op.gte]: this.validFrom(header),
         },
         validTo: {
           [Op.not]: null,
@@ -455,7 +495,7 @@ export class Journal {
           where: {
             factionId: factionRemovedId,
             validFrom: {
-              [Op.lt]: new Date(timeNow - 172800000),
+              [Op.lt]: this.validFrom(header),
             },
           },
           limit: 1,
@@ -509,7 +549,7 @@ export class Journal {
       }
 
       // Check if the message contains the same data as the current state.
-      if (currentFactionStatus && Journal.checkSystemFactionHistoryEquality(currentFactionStatus, factionInMessage)) {
+      if (currentFactionStatus && this.checkSystemFactionHistoryEquality(currentFactionStatus, factionInMessage)) {
         processingMessages.push(ProcessingMessages.SYSTEM_FACTION_HISTORY_NOT_UPDATED(factionInMessage.Name))
         return false
       }
@@ -521,7 +561,7 @@ export class Journal {
           .filter((history) => history.factionId === faction.id)
           // In here each history record for this faction gets checked with the message data to verify if there are
           // any records that match.
-          .some((history) => Journal.checkSystemFactionHistoryEquality(history, factionInMessage))
+          .some((history) => this.checkSystemFactionHistoryEquality(history, factionInMessage))
       ) {
         processingMessages.push(ProcessingMessages.SYSTEM_FACTION_HISTORY_CACHED(faction.name))
         return false
@@ -596,6 +636,153 @@ export class Journal {
     return { processed, processingMessages: processingMessages }
   }
 
+  /**
+   * Find the station with the market ID along with its aliases. If the station with the market ID exists, check
+   * if the name is the same and create an alias if not. An alias is only created if that alias is previously not
+   * created. If the market ID doesn't exist, a new record is created.
+   */
+  private static async ensureStationWAliases(
+    message: StationMessage['message'],
+    system: Systems,
+    transaction: Transaction
+  ) {
+    let station = await Stations.findOne({
+      where: { marketId: message.MarketID.toString() },
+      include: [StationAliases],
+      transaction,
+    })
+    if (!station) {
+      station = await Stations.create(
+        {
+          marketId: message.MarketID.toString(),
+          systemId: system.id,
+          stationName: message.StationName,
+          stationNameLower: message.StationName.toLowerCase(),
+        },
+        {
+          transaction,
+        },
+      )
+
+      return { station, processed: true, processingMessages: [ProcessingMessages.STATION_CREATED] }
+    }
+
+    if (message.StationName !== station.stationName) {
+      const stationAliases = station.StationAliases
+      // Checking the actual names so that even changing the case will create an alias.
+      if (!stationAliases.some((alias) => alias.alias === message.StationName)) {
+        await station.createStationAlias(
+          {
+            alias: station.stationName,
+            aliasLower: station.stationNameLower,
+          },
+          { transaction },
+        )
+        await station.update(
+          {
+            stationName: message.StationName,
+            stationNameLower: message.StationName.toLowerCase(),
+          },
+          { transaction },
+        )
+
+        return { station, processed: true, processingMessages: [ProcessingMessages.STATION_ALIAS_UPDATED] }
+      }
+    }
+
+    return { station, processed: false, processingMessages: [ProcessingMessages.STATION_NOT_UPDATED] }
+  }
+
+  /** Get all the current station history records and all the historical records for the last 48 hours. */
+  private static async ensureStationHistory(
+    message: StationMessage['message'],
+    header: EDDNBase['header'],
+    station: Stations,
+    faction: Factions,
+    transaction: Transaction,
+  ) {
+
+    // Get the current status of the station by finding the record which doesn't have a `validTo`.
+    const currentStationStatusPromise = station.getStationHistories({
+      where: {
+        validTo: {
+          [Op.is]: null,
+        },
+      },
+      limit: 1,
+      order: [['validFrom', 'DESC']],
+      transaction,
+    })
+
+    // Get all the historical records of the station in the last 48 hours that have a `validTo`.
+    const stationHistoriesPromise = station.getStationHistories({
+      where: {
+        validFrom: {
+          [Op.gte]: this.validFrom(header),
+        },
+        validTo: {
+          [Op.not]: null,
+        },
+      },
+      order: [['validFrom', 'DESC']],
+      transaction,
+    })
+
+    const promiseSettled = await Journal.PromiseSettle([currentStationStatusPromise, stationHistoriesPromise])
+    const currentStationStatus = promiseSettled[0].at(0)
+    const stationHistories = promiseSettled[1]
+
+    // If the message timestamp is older than the start of the latest record, or older than the end of the latest
+    // record, skip processing.
+    if (
+      currentStationStatus &&
+      (message.timestamp < currentStationStatus.validFrom || message.timestamp < currentStationStatus.validTo)
+    ) {
+      return { processed: false, processingMessages: [ProcessingMessages.STATION_HISTORY_OLDER] }
+    }
+
+    // Check if the message contains the same data as the current state.
+    if (currentStationStatus && this.checkStationHistoryEquality(currentStationStatus, message, faction.id)) {
+      return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_HISTORY_NOT_UPDATED] }
+    }
+/*
+    // Run some checks on the message with the existing history to verify that it should be processed. If the system
+    // data matches all values for any data in the last 48 hours, skip processing.
+    if (
+      systemHistories.length > 0 &&
+      systemHistories.some((history) => Journal.checkSystemHistoryEquality(history, message, systemFaction.id))
+    ) {
+      return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_HISTORY_CACHED] }
+    }
+
+    // If there is a current system status history record, mark the `validTo` of the latest record as a new record
+    // is to be added.
+    if (currentSystemStatus) {
+      await currentSystemStatus.update(
+        {
+          validTo: message.timestamp,
+        },
+        { transaction },
+      )
+    }
+    await system.createSystemHistory(
+      {
+        population: message.Population,
+        systemGovernment: message.SystemGovernment,
+        systemAllegiance: message.SystemAllegiance,
+        systemSecurity: message.SystemSecurity,
+        systemEconomy: message.SystemEconomy,
+        systemSecondEconomy: message.SystemSecondEconomy,
+        systemFactionId: systemFaction.id,
+        systemFactionState: message.SystemFaction.FactionState.toLowerCase(),
+        validFrom: message.timestamp,
+      },
+      { transaction },
+    )
+*/
+    return { processed: true, processingMessages: [ProcessingMessages.STATION_HISTORY_CREATED] }
+  }
+
   /** Compare a `SystemHistory` record with the system in a message field by field. */
   private static checkSystemHistoryEquality(
     record: SystemHistories,
@@ -637,6 +824,24 @@ export class Journal {
           return historyElement.state === messageElement.State && historyElement.trend === messageElement.Trend
         },
       )
+    )
+  }
+
+  /** Compare a `StationHistory` record with the station in a message field by field. */
+  private static checkStationHistoryEquality(
+    record: StationHistories,
+    message: StationMessage['message'],
+    factionId: string,
+  ): boolean {
+    return (
+      record.distanceFromStar === message.DistFromStarLS &&
+      record.stationAllegiance === message.StationAllegiance &&
+      record.stationEconomy === message.StationEconomy &&
+      record.stationGovernment === message.StationGovernment &&
+      record.stationType === message.StationType &&
+      record.stationFactionId === factionId &&
+      record.stationFactionState === message.StationFaction.FactionState
+      // TODO: Add in checks for the services and economies
     )
   }
 
@@ -817,4 +1022,15 @@ export class Journal {
     }
     return promiseSettled.map((promise) => promise.status === 'fulfilled' && promise.value)
   }
+
+  private static validFrom(header: EDDNBase['header']) {
+    let ts: number
+    if (process.env.LOAD_ARCHIVE === 'true') {
+      ts = header.gatewayTimestamp.getTime()
+    } else {
+      ts = Date.now()
+    }
+    return new Date(ts - 172800000)
+  }
+
 }

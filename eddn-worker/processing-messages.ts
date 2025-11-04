@@ -29,6 +29,20 @@ export class ProcessingMessages {
 
   static SYSTEM_HISTORY_CREATED = 'System history created.'
 
+  static STATION_CREATED = 'Station created.'
+
+  static STATION_ALIAS_UPDATED = 'Station alias updated.'
+
+  static STATION_NOT_UPDATED = 'Station not updated.'
+
+  static STATION_HISTORY_NOT_UPDATED = 'Message is the same as the current station history record.'
+
+  static STATION_HISTORY_OLDER = 'Message is older than the latest record.'
+
+  static STATION_HISTORY_CACHED = 'Message is probably cached.'
+
+  static STATION_HISTORY_CREATED = 'Station history created.'
+
   static FACTION_CREATED(faction: string) {
     return `Faction created: ${faction}`
   }
@@ -56,4 +70,9 @@ export class ProcessingMessages {
   static SYSTEM_FACTION_HISTORY_OLDER = (faction: string) => {
     return `Message is older than the latest record: ${faction}`
   }
+
+  static FACTION_NOT_FOUND(faction: string) {
+    return `Faction doesn't exist: ${faction}`
+  }
+
 }

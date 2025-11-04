@@ -1,11 +1,16 @@
 import type {
   CreationOptional,
   ForeignKey,
+  HasManyCreateAssociationMixin,
+  HasManyGetAssociationsMixin,
   InferAttributes,
   InferCreationAttributes,
+  NonAttribute,
 } from 'sequelize'
 import { DataTypes, Model, Sequelize } from 'sequelize'
 import { Systems } from './systems.ts'
+import { StationAliases } from './station_aliases.ts'
+import { StationHistories } from './station_histories.ts'
 
 export class Stations extends Model<
   InferAttributes<Stations>,
@@ -13,12 +18,18 @@ export class Stations extends Model<
 > {
   declare id: CreationOptional<string>
   declare systemId: ForeignKey<Systems['id']>
-  declare station: string
-  declare stationLower: string
+  declare stationName: string
+  declare stationNameLower: string
   declare marketId: string
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
+
+  declare StationAliases?: NonAttribute<StationAliases[]>
+  declare createStationAlias: HasManyCreateAssociationMixin<StationAliases, 'stationId'>
+
+  declare getStationHistories: HasManyGetAssociationsMixin<StationHistories>
+  declare createStationHistory: HasManyCreateAssociationMixin<StationHistories, 'stationId'>
 
 }
 
@@ -34,11 +45,11 @@ export function StationsInit(sequelize: Sequelize) {
         type: DataTypes.UUID,
         allowNull: false,
       },
-      station: {
+      stationName: {
         type: DataTypes.STRING,
         allowNull: false,
       },
-      stationLower: {
+      stationNameLower: {
         type: DataTypes.STRING,
         allowNull: false,
       },
