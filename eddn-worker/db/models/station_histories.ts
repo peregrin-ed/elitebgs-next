@@ -28,11 +28,11 @@ export class StationHistories extends Model<InferAttributes<StationHistories>, I
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 
-  declare getStationHistoriesServices: HasManyGetAssociationsMixin<StationHistoriesServices>
-  declare createStationHistoriesServices: HasManyCreateAssociationMixin<StationHistoriesServices, 'stationHistoryId'>
+  declare StationHistoriesServices?: HasManyGetAssociationsMixin<StationHistoriesServices[]>
+  declare createStationHistoriesService: HasManyCreateAssociationMixin<StationHistoriesServices, 'stationHistoryId'>
 
-  declare getStationHistoriesEconomies: HasManyGetAssociationsMixin<StationHistoriesEconomies>
-  declare createStationHistoriesEconomies: HasManyCreateAssociationMixin<StationHistoriesEconomies, 'stationHistoryId'>
+  declare StationHistoriesEconomies?: HasManyGetAssociationsMixin<StationHistoriesEconomies[]>
+  declare createStationHistoriesEconomy: HasManyCreateAssociationMixin<StationHistoriesEconomies, 'stationHistoryId'>
 }
 
 export function StationHistoriesInit(sequelize: Sequelize) {
@@ -50,6 +50,9 @@ export function StationHistoriesInit(sequelize: Sequelize) {
       distanceFromStar: {
         type: DataTypes.DECIMAL,
         allowNull: false,
+        get() {
+          return parseFloat(this.getDataValue('distanceFromStar').toString())
+        },
       },
       stationAllegiance: {
         type: DataTypes.STRING,

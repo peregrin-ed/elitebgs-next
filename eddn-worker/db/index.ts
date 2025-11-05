@@ -128,7 +128,7 @@ export class DB {
     })
     StationHistoriesServices.belongsTo(StationHistories)
 
-    StationHistories.hasMany(StationHistories, {
+    StationHistories.hasMany(StationHistoriesEconomies, {
       foreignKey: 'stationHistoryId',
     })
     StationHistoriesEconomies.belongsTo(StationHistories);

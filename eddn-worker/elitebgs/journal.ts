@@ -22,6 +22,8 @@ import { SystemHistories } from '../db/models/system_histories.ts'
 import { Stations } from '../db/models/stations.ts'
 import { StationAliases } from '../db/models/station_aliases.ts'
 import { StationHistories } from '../db/models/station_histories.ts'
+import { StationHistoriesServices } from '../db/models/station_histories_services.ts'
+import { StationHistoriesEconomies } from '../db/models/station_histories_economies.ts'
 
 export type TrackResponse = {
   processed: boolean
@@ -30,7 +32,7 @@ export type TrackResponse = {
 
 /** Responsible for handling EDDN journal messages. */
 export class Journal {
-  static SCHEMA_OUTDATED = 'http://schemas.elite-markets.net/eddn/journal/1'
+//  static SCHEMA_OUTDATED = 'http://schemas.elite-markets.net/eddn/journal/1'
   static SCHEMA = 'https://eddn.edcd.io/schemas/journal/1'
   static SCHEMA_TEST = 'https://eddn.edcd.io/schemas/journal/1/test'
 
@@ -62,65 +64,63 @@ export class Journal {
       return { processed: false, processingMessages: errors }
     }
 
-    this.coerceMessage(journalMsg, hasStationDetails)
+    this.coerceMessage(journalMsg, hasSystemDetails, hasStationDetails)
 
-    try {
-      return await sequelize.transaction(async (transaction) => {
-        // First handle any system-related details
-        if (hasSystemDetails) {
-          return await this.processSystemMessage(journalMsg.header, journalMsg as SystemMessage, transaction)
+    return await sequelize.transaction(async (transaction) => {
+      // First handle any system-related details
+      if (hasSystemDetails) {
+        return await this.processSystemMessage(journalMsg.header, journalMsg as SystemMessage, transaction)
+      } else {
+        return {
+          system: null,
+          processed: false,
+          processingMessages: [],
+        }
+      }
+    }).then(systemResult => {
+      return sequelize.transaction(async (transaction) => {
+        // Next handle any station-related details
+        let stationResult: TrackResponse
+
+        if (hasStationDetails) {
+          let system: Systems
+          if (systemResult.system) {
+            system = systemResult.system
+          } else {
+            // Load the system based on the system address
+            system = await Systems.findOne({
+              where: { systemAddress: journalMsg.message.SystemAddress.toString() },
+              transaction,
+            })
+            if (!system) {
+              return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_NOT_FOUND] }
+            }
+          }
+
+          stationResult = await this.processStationMessage(journalMsg.header, journalMsg as StationMessage, system, transaction)
+
         } else {
-          return {
-            system: null,
+          // No station details
+          stationResult = {
             processed: false,
             processingMessages: [],
           }
         }
-      }).then(systemResult => {
-        return sequelize.transaction(async (transaction) => {
-          // Next handle any station-related details
-          let stationResult: TrackResponse
 
-          if (hasStationDetails) {
-            let system: Systems
-            if (systemResult.system) {
-              system = systemResult.system
-            } else {
-              // Load the system based on the system address
-              system = await Systems.findOne({
-                where: { systemAddress: journalMsg.message.SystemAddress.toString() },
-                transaction,
-              })
-              if (!system) {
-                return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_NOT_FOUND] }
-              }
-            }
-
-            stationResult = await this.processStationMessage(journalMsg.header, journalMsg as StationMessage, system, transaction)
-
-          } else {
-            // No station details
-            stationResult = {
-              processed: false,
-              processingMessages: [],
-            }
-          }
-
-          return {
-            processed: systemResult.processed || stationResult.processed,
-            processingMessages: systemResult.processingMessages
-              .concat(stationResult.processingMessages),
-          };
-        })
+        return {
+          processed: systemResult.processed || stationResult.processed,
+          processingMessages: systemResult.processingMessages
+            .concat(stationResult.processingMessages),
+        };
       })
-    } catch (err) {
+    }).catch(err => {
       return {
         processed: false,
         processingMessages: Array.isArray(err)
           ? err.map((element) => ProcessingMessages.DB_ERROR(element))
           : [ProcessingMessages.DB_ERROR(err)],
       }
-    }
+    });
   }
 
   private static async processSystemMessage(messageHeader: EDDNBase["header"], systemMsg: SystemMessage,
@@ -184,9 +184,6 @@ export class Journal {
       processingMessages: stationHistoriesProcessingMessages
     } = await this.ensureStationHistory(stationMsg.message, messageHeader, station, faction, transaction)
 
-    // TODO: Finish implementing this function
-
-    // TODO: Return the correct processed value and processing messages
     return {
       processed: stationProcessed || stationHistoriesProcessed,
       processingMessages: stationProcessingMessages
@@ -711,6 +708,7 @@ export class Journal {
       },
       limit: 1,
       order: [['validFrom', 'DESC']],
+      include: [StationHistoriesServices, StationHistoriesEconomies],
       transaction,
     })
 
@@ -725,6 +723,7 @@ export class Journal {
         },
       },
       order: [['validFrom', 'DESC']],
+      include: [StationHistoriesServices, StationHistoriesEconomies],
       transaction,
     })
 
@@ -745,41 +744,67 @@ export class Journal {
     if (currentStationStatus && this.checkStationHistoryEquality(currentStationStatus, message, faction.id)) {
       return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_HISTORY_NOT_UPDATED] }
     }
-/*
-    // Run some checks on the message with the existing history to verify that it should be processed. If the system
+
+    // Run some checks on the message with the existing history to verify that it should be processed. If the station
     // data matches all values for any data in the last 48 hours, skip processing.
     if (
-      systemHistories.length > 0 &&
-      systemHistories.some((history) => Journal.checkSystemHistoryEquality(history, message, systemFaction.id))
+      stationHistories.length > 0 &&
+      stationHistories.some((history) => this.checkStationHistoryEquality(history, message, faction.id))
     ) {
       return { processed: false, processingMessages: [ProcessingMessages.SYSTEM_HISTORY_CACHED] }
     }
 
-    // If there is a current system status history record, mark the `validTo` of the latest record as a new record
+    // If there is a current station status history record, mark the `validTo` of the latest record as a new record
     // is to be added.
-    if (currentSystemStatus) {
-      await currentSystemStatus.update(
+    if (currentStationStatus) {
+      await currentStationStatus.update(
         {
           validTo: message.timestamp,
         },
         { transaction },
       )
     }
-    await system.createSystemHistory(
+
+    const createdStationHistory = await station.createStationHistory(
       {
-        population: message.Population,
-        systemGovernment: message.SystemGovernment,
-        systemAllegiance: message.SystemAllegiance,
-        systemSecurity: message.SystemSecurity,
-        systemEconomy: message.SystemEconomy,
-        systemSecondEconomy: message.SystemSecondEconomy,
-        systemFactionId: systemFaction.id,
-        systemFactionState: message.SystemFaction.FactionState.toLowerCase(),
+        distanceFromStar: message.DistFromStarLS,
+        stationAllegiance: message.StationAllegiance,
+        stationEconomy: message.StationEconomy,
+        stationGovernment: message.StationGovernment,
+        stationType: message.StationType,
+        stationFactionId: faction.id,
+        stationFactionState: message.StationFaction.FactionState.toLowerCase(),
         validFrom: message.timestamp,
       },
       { transaction },
     )
-*/
+
+    const servicesPromises = message.StationServices && message.StationServices.length > 0
+      ? (message.StationServices.map((service) => {
+        return createdStationHistory.createStationHistoriesService(
+          {
+            name: service,
+          },
+          { transaction },
+        )
+      }))
+      : []
+
+    const economiesPromises = message.StationEconomies && message.StationEconomies.length > 0
+      ? (message.StationEconomies.map((economy) => {
+        console.log(`*** Creating economy ${economy.Name}`)
+        return createdStationHistory.createStationHistoriesEconomy(
+          {
+            name: economy.Name,
+            proportion: economy.Proportion,
+          },
+          { transaction },
+        )
+      }))
+      : []
+
+    await Journal.PromiseSettle(servicesPromises.concat(economiesPromises))
+
     return { processed: true, processingMessages: [ProcessingMessages.STATION_HISTORY_CREATED] }
   }
 
@@ -833,16 +858,42 @@ export class Journal {
     message: StationMessage['message'],
     factionId: string,
   ): boolean {
-    return (
-      record.distanceFromStar === message.DistFromStarLS &&
-      record.stationAllegiance === message.StationAllegiance &&
-      record.stationEconomy === message.StationEconomy &&
-      record.stationGovernment === message.StationGovernment &&
-      record.stationType === message.StationType &&
-      record.stationFactionId === factionId &&
-      record.stationFactionState === message.StationFaction.FactionState
-      // TODO: Add in checks for the services and economies
-    )
+    // First check the "primary" attributes
+    if (
+      record.distanceFromStar !== message.DistFromStarLS ||
+      record.stationAllegiance !== message.StationAllegiance ||
+      record.stationEconomy !== message.StationEconomy ||
+      record.stationGovernment !== message.StationGovernment ||
+      record.stationType !== message.StationType ||
+      record.stationFactionId !== factionId ||
+      record.stationFactionState !== message.StationFaction.FactionState.toLowerCase()
+    ) {
+      return false;
+    }
+
+    // Next check the services
+    if (record.StationHistoriesServices.length !== message.StationServices.length) {
+      return false;
+    }
+    const mServices = new Set(message.StationServices);
+    for (let i = 0; i < record.StationHistoriesServices.length; i++) {
+      if (!mServices.has(record.StationHistoriesServices[i].name)) {
+        return false;
+      }
+    }
+
+    // Finally check the economies
+    if (record.StationHistoriesEconomies.length !== message.StationEconomies.length) {
+      return false;
+    }
+    const mEconomies = new Map(message.StationEconomies.map(se => [se.Name, se.Proportion]));
+    for (let i = 0; i < record.StationHistoriesEconomies.length; i++) {
+      const economy = record.StationHistoriesEconomies[i];
+      if (!mEconomies.has(economy.name) || mEconomies.get(economy.name) !== economy.proportion) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -996,8 +1047,8 @@ export class Journal {
   }
 
   /** Fix certain issues that are expected in the incoming message. */
-  private static coerceMessage(journalMsg: JournalMessage, hasStationDetails: boolean) {
-    if (journalMsg.message.event === JournalEvents.FSDJump || journalMsg.message.event === JournalEvents.Location) {
+  private static coerceMessage(journalMsg: JournalMessage, hasSystemDetails: boolean, hasStationDetails: boolean) {
+    if (hasSystemDetails) {
       const systemMsg = (journalMsg as SystemMessage).message
       if (!systemMsg.SystemFaction.FactionState) {
         systemMsg.SystemFaction.FactionState = 'None'

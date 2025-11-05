@@ -28,6 +28,9 @@ export function StationHistoriesEconomiesInit(sequelize: Sequelize) {
       proportion: {
         type: DataTypes.DECIMAL,
         allowNull: false,
+        get() {
+          return parseFloat(this.getDataValue('proportion').toString())
+        },
       }
     },
     {
