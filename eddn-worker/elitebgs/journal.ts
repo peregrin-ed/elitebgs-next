@@ -158,8 +158,6 @@ export class Journal {
 
   private static async processStationMessage(messageHeader: EDDNBase["header"], stationMsg: StationMessage,
                                              system: Systems, transaction: Transaction) {
-    console.log(`Processing station message for ${stationMsg.message.MarketID} for system ${system.starSystem}`)
-
     const faction = await Factions.findOne({
       where: { nameLower: stationMsg.message.StationFaction.Name.toLowerCase() },
       transaction,
@@ -341,7 +339,7 @@ export class Journal {
         systemEconomy: message.SystemEconomy,
         systemSecondEconomy: message.SystemSecondEconomy,
         systemFactionId: systemFaction.id,
-        systemFactionState: message.SystemFaction.FactionState.toLowerCase(),
+        systemFactionState: message.SystemFaction.FactionState,
         validFrom: message.timestamp,
       },
       { transaction },
@@ -655,6 +653,7 @@ export class Journal {
           systemId: system.id,
           stationName: message.StationName,
           stationNameLower: message.StationName.toLowerCase(),
+          distanceFromStar: Math.floor(message.DistFromStarLS),
         },
         {
           transaction,
@@ -767,13 +766,12 @@ export class Journal {
 
     const createdStationHistory = await station.createStationHistory(
       {
-        distanceFromStar: message.DistFromStarLS,
         stationAllegiance: message.StationAllegiance,
         stationEconomy: message.StationEconomy,
         stationGovernment: message.StationGovernment,
         stationType: message.StationType,
         stationFactionId: faction.id,
-        stationFactionState: message.StationFaction.FactionState.toLowerCase(),
+        stationFactionState: message.StationFaction.FactionState,
         validFrom: message.timestamp,
       },
       { transaction },
@@ -792,7 +790,6 @@ export class Journal {
 
     const economiesPromises = message.StationEconomies && message.StationEconomies.length > 0
       ? (message.StationEconomies.map((economy) => {
-        console.log(`*** Creating economy ${economy.Name}`)
         return createdStationHistory.createStationHistoriesEconomy(
           {
             name: economy.Name,
@@ -860,13 +857,12 @@ export class Journal {
   ): boolean {
     // First check the "primary" attributes
     if (
-      record.distanceFromStar !== message.DistFromStarLS ||
       record.stationAllegiance !== message.StationAllegiance ||
       record.stationEconomy !== message.StationEconomy ||
       record.stationGovernment !== message.StationGovernment ||
       record.stationType !== message.StationType ||
       record.stationFactionId !== factionId ||
-      record.stationFactionState !== message.StationFaction.FactionState.toLowerCase()
+      record.stationFactionState !== message.StationFaction.FactionState
     ) {
       return false;
     }

@@ -33,9 +33,9 @@ export class SystemFactionHistories extends Model<
   declare PendingStates?: NonAttribute<PendingStates[]>
   declare RecoveringStates?: NonAttribute<RecoveringStates[]>
 
-  declare createActiveState: HasManyCreateAssociationMixin<ActiveStates, 'systemFactionId'>
-  declare createPendingState: HasManyCreateAssociationMixin<PendingStates, 'systemFactionId'>
-  declare createRecoveringState: HasManyCreateAssociationMixin<RecoveringStates, 'systemFactionId'>
+  declare createActiveState: HasManyCreateAssociationMixin<ActiveStates, 'systemFactionHistoryId'>
+  declare createPendingState: HasManyCreateAssociationMixin<PendingStates, 'systemFactionHistoryId'>
+  declare createRecoveringState: HasManyCreateAssociationMixin<RecoveringStates, 'systemFactionHistoryId'>
 }
 
 export function SystemFactionHistoriesInit(sequelize: Sequelize) {
@@ -61,6 +61,9 @@ export function SystemFactionHistoriesInit(sequelize: Sequelize) {
       influence: {
         type: DataTypes.DECIMAL,
         allowNull: false,
+        get() {
+          return parseFloat(this.getDataValue('influence').toString())
+        },
       },
       happiness: {
         type: DataTypes.STRING,

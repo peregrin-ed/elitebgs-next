@@ -99,17 +99,17 @@ export class DB {
     SystemFactionHistories.belongsTo(Factions)
 
     SystemFactionHistories.hasMany(ActiveStates, {
-      foreignKey: 'systemFactionId',
+      foreignKey: 'systemFactionHistoryId',
     })
     ActiveStates.belongsTo(SystemFactionHistories)
 
     SystemFactionHistories.hasMany(PendingStates, {
-      foreignKey: 'systemFactionId',
+      foreignKey: 'systemFactionHistoryId',
     })
     PendingStates.belongsTo(SystemFactionHistories)
 
     SystemFactionHistories.hasMany(RecoveringStates, {
-      foreignKey: 'systemFactionId',
+      foreignKey: 'systemFactionHistoryId',
     })
     RecoveringStates.belongsTo(SystemFactionHistories)
 

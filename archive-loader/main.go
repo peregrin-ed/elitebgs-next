@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -50,20 +49,9 @@ func main() {
 // for each file. It streams the files and directly decompresses and sends the data to a worker URL.
 func downloadBzip2Files(workerUrl string) {
 	downloadUrl := os.Getenv("DOWNLOAD_URL")
-	downloadStartDate := os.Getenv("DOWNLOAD_START_DATE")
-	downloadEndDate := os.Getenv("DOWNLOAD_END_DATE")
 
-	downloadStartTime, err := time.Parse("2006-01-02", downloadStartDate)
-	if err != nil {
-		log.Fatal("Error parsing start date:", err)
-	}
-	downloadEndTime, err := time.Parse("2006-01-02", downloadEndDate)
-	if err != nil {
-		log.Fatal("Error parsing end date:", err)
-	}
-
-	for _, event := range JournalTypes {
-		for date := range iterateDays(downloadStartTime, downloadEndTime) {
+	for date := range iterateDays() {
+		for _, event := range JournalTypes {
 			func() {
 				fileName := fmt.Sprintf("Journal.%s-%s.jsonl.bz2", event, date.Format("2006-01-02"))
 				fullUrl, err := url.JoinPath(downloadUrl, date.Format("2006-01"), fileName)
@@ -95,11 +83,24 @@ func downloadBzip2Files(workerUrl string) {
 	}
 }
 
-// iterateDays generates a sequence of dates from startDate to endDate, inclusive.
-func iterateDays(startDate, endDate time.Time) iter.Seq[time.Time] {
+// iterateDays generates a sequence of dates from the start and end dates (inclusive) configured via the relevant
+// environment variables
+func iterateDays() iter.Seq[time.Time] {
+	startDate := os.Getenv("START_DATE")
+	endDate := os.Getenv("END_DATE")
+
+	startTime, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		log.Fatal("Error parsing start date:", err)
+	}
+	endTime, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		log.Fatal("Error parsing end date:", err)
+	}
+
 	return func(yield func(time.Time) bool) {
-		currentDate := startDate
-		for !currentDate.After(endDate) {
+		currentDate := startTime
+		for !currentDate.After(endTime) {
 			if !yield(currentDate) {
 				return
 			}
@@ -113,56 +114,53 @@ func iterateDays(startDate, endDate time.Time) iter.Seq[time.Time] {
 // worker URL.
 func readBzip2FromFiles(workerUrl string) {
 	archiveFolder := os.Getenv(ArchiveFolderKey)
-	dirs, err := os.ReadDir(archiveFolder)
-	if err != nil {
-		log.Fatal("Error reading archive folder:", err)
-	}
-	sort.Slice(dirs, func(i, j int) bool {
-		return dirs[i].Name() < dirs[j].Name()
-	})
 
-	for _, dir := range dirs {
-		if !dir.IsDir() {
-			continue
+	for date := range iterateDays() {
+		for _, event := range JournalTypes {
+			dir := date.Format("2006-01")
+			fname := "Journal." + event + "-" + date.Format("2006-01-02") + ".jsonl.bz2"
+			f := filepath.Join(archiveFolder, dir, fname)
+			readBzip2FromFile(workerUrl, f)
 		}
-		readBzip2FromDirectory(workerUrl, dir)
 	}
+	/*
+		dirs, err := os.ReadDir(archiveFolder)
+		if err != nil {
+			log.Fatal("Error reading archive folder:", err)
+		}
+		sort.Slice(dirs, func(i, j int) bool {
+			return dirs[i].Name() < dirs[j].Name()
+		})
+
+		for _, dir := range dirs {
+			if !dir.IsDir() {
+				continue
+			}
+			readBzip2FromDirectory(workerUrl, dir)
+		}
+
+	*/
 }
 
-// readBzip2FromDirectory reads all the files in the specified directory, decompresses them, and sends the data to a
-// worker URL.
-func readBzip2FromDirectory(workerUrl string, dir os.DirEntry) {
-	files, err := os.ReadDir(filepath.Join(os.Getenv(ArchiveFolderKey), dir.Name()))
-	if err != nil {
-		log.Fatal("Error reading archive folder:", err)
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Name() < files[j].Name()
-	})
-
-	for _, file := range files {
-		if strings.HasSuffix(file.Name(), ".bz2") {
-			func() {
-				filePath := filepath.Join(os.Getenv(ArchiveFolderKey), dir.Name(), file.Name())
-				reader, err := os.Open(filePath)
-				if err != nil {
-					fmt.Printf("failed to open file %s: %v", filePath, err)
-					return
-				}
-				defer func(file *os.File) {
-					err := file.Close()
-					if err != nil {
-						log.Println("Error closing file:", err)
-					}
-				}(reader)
-
-				log.Printf("Processing %s...\n", filePath)
-
-				decompressAndSend(reader, workerUrl)
-			}()
+// readBzip2FromFile reads the specified file, decompresses it, and sends its data line-by-line to the worker URL.
+func readBzip2FromFile(workerUrl string, filename string) {
+	func() {
+		reader, err := os.Open(filename)
+		if err != nil {
+			log.Printf("failed to open file %s: %v\n", filename, err)
+			return
 		}
-	}
+		defer func(file *os.File) {
+			err := file.Close()
+			if err != nil {
+				log.Println("Error closing file:", err)
+			}
+		}(reader)
+
+		log.Printf("Processing %s...\n", filename)
+
+		decompressAndSend(reader, workerUrl)
+	}()
 }
 
 // decompressAndSend decompresses the bzip2 data from the reader and sends each line to the worker URL as a JSON payload.
@@ -173,43 +171,36 @@ func decompressAndSend(reader io.Reader, workerUrl string) {
 	counter := 0
 	for scanner.Scan() {
 		func() {
-
-			// TODO: Remove this!
-			if counter < 20 {
-
-				line := scanner.Text()
-
-				println(line)
-
-				response, err := http.Post(workerUrl, "application/json", strings.NewReader(line))
-				if err != nil {
-					fmt.Printf("error posting to worker URL %s: %v", workerUrl, err)
-					return
-				}
-				defer func(Body io.ReadCloser) {
-					err := Body.Close()
-					if err != nil {
-						log.Println("Error closing response body:", err)
-					}
-				}(response.Body)
-				_, err = io.Copy(io.Discard, response.Body)
-				if err != nil {
-					fmt.Printf("error reading and dumping response body: %v", err)
-				}
-				var messageData message
-				err = json.Unmarshal(scanner.Bytes(), &messageData)
-				if err != nil {
-					log.Println("Error closing file:", err)
-				}
-				elapsedTime := time.Since(startTime)
-				counter++
-				averageDuration := elapsedTime / time.Duration(counter)
-				log.Printf("Processed %s, average execution time %s, total execution time %s, iterations %d\n",
-					messageData.Header.GatewayTimestamp,
-					averageDuration.String(),
-					elapsedTime.String(),
-					counter)
+			line := scanner.Text()
+			response, err := http.Post(workerUrl, "application/json", strings.NewReader(line))
+			if err != nil {
+				fmt.Printf("error posting to worker URL %s: %v", workerUrl, err)
+				return
 			}
+			defer func(Body io.ReadCloser) {
+				err := Body.Close()
+				if err != nil {
+					log.Println("Error closing response body:", err)
+				}
+			}(response.Body)
+			_, err = io.Copy(io.Discard, response.Body)
+			if err != nil {
+				fmt.Printf("error reading and dumping response body: %v", err)
+			}
+			var messageData message
+			err = json.Unmarshal(scanner.Bytes(), &messageData)
+			if err != nil {
+				log.Println("Error closing file:", err)
+			}
+			elapsedTime := time.Since(startTime)
+			counter++
+			averageDuration := elapsedTime / time.Duration(counter)
+			log.Printf("Processed %s, average execution time %s, total execution time %s, iterations %d\n",
+				messageData.Header.GatewayTimestamp,
+				averageDuration.String(),
+				elapsedTime.String(),
+				counter)
+
 		}()
 	}
 	err := scanner.Err()

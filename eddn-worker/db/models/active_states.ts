@@ -5,7 +5,7 @@ import { SystemFactionHistories } from './system_faction_histories.ts'
 export class ActiveStates extends Model<InferAttributes<ActiveStates>, InferCreationAttributes<ActiveStates>> {
   declare id: CreationOptional<string>
   declare state: string
-  declare systemFactionId: ForeignKey<SystemFactionHistories['id']>
+  declare systemFactionHistoryId: ForeignKey<SystemFactionHistories['id']>
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
@@ -19,7 +19,7 @@ export function ActiveStatesInit(sequelize: Sequelize) {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
-      systemFactionId: {
+      systemFactionHistoryId: {
         type: DataTypes.UUID,
         allowNull: false,
       },

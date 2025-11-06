@@ -6,7 +6,7 @@ export class PendingStates extends Model<InferAttributes<PendingStates>, InferCr
   declare id: CreationOptional<string>
   declare state: string
   declare trend: number
-  declare systemFactionId: ForeignKey<SystemFactionHistories['id']>
+  declare systemFactionHistoryId: ForeignKey<SystemFactionHistories['id']>
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
@@ -20,7 +20,7 @@ export function PendingStatesInit(sequelize: Sequelize) {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
-      systemFactionId: {
+      systemFactionHistoryId: {
         type: DataTypes.UUID,
         allowNull: false,
       },
@@ -31,6 +31,9 @@ export function PendingStatesInit(sequelize: Sequelize) {
       trend: {
         type: DataTypes.DECIMAL,
         allowNull: false,
+        get() {
+          return parseInt(this.getDataValue('trend').toString())
+        },
       },
       createdAt: {
         type: DataTypes.DATE,

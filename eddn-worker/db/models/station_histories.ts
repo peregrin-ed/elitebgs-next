@@ -15,7 +15,6 @@ import { StationHistoriesEconomies } from './station_histories_economies.ts'
 export class StationHistories extends Model<InferAttributes<StationHistories>, InferCreationAttributes<StationHistories>> {
   declare id: CreationOptional<string>
   declare stationId: ForeignKey<Stations['id']>
-  declare distanceFromStar: number
   declare stationAllegiance: string
   declare stationEconomy: string
   declare stationGovernment: string
@@ -46,13 +45,6 @@ export function StationHistoriesInit(sequelize: Sequelize) {
       stationId: {
         type: DataTypes.UUID,
         allowNull: false,
-      },
-      distanceFromStar: {
-        type: DataTypes.DECIMAL,
-        allowNull: false,
-        get() {
-          return parseFloat(this.getDataValue('distanceFromStar').toString())
-        },
       },
       stationAllegiance: {
         type: DataTypes.STRING,

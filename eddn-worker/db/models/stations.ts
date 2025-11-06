@@ -21,6 +21,7 @@ export class Stations extends Model<
   declare stationName: string
   declare stationNameLower: string
   declare marketId: string
+  declare distanceFromStar: number
 
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
@@ -56,6 +57,13 @@ export function StationsInit(sequelize: Sequelize) {
       marketId: {
         type: DataTypes.STRING,
         allowNull: false,
+      },
+      distanceFromStar: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        get() {
+          return parseInt(this.getDataValue('distanceFromStar').toString())
+        },
       },
       // Needed to mute the typing error as sequelize can't figure it out.
       createdAt: {
