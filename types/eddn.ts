@@ -75,13 +75,14 @@ export type Location = SystemMessage & StationMessage & {
 export type ConflictFaction = {
   Name: string
   Stake: string
-  WonDaysAgo: number
+  WonDays: number
 }
 
 export type FactionConflict = {
   WarType: string
   Status: string
   Faction1: ConflictFaction
+  Faction2: ConflictFaction
 }
 
 export type PowerplayConflict = {
